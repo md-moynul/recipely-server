@@ -42,7 +42,15 @@ async function run() {
             const newRecipe = await recipesCollections.insertOne(recipe);
             res.send(newRecipe);
         });
-        
+        app.get('/api/my-recipe', async (req, res) => {
+            let query ={};
+            if(req.query.authorId){
+                query.authorId = req.query.authorId
+            }
+            const cursor = recipesCollections.find(query);
+            const recipes = await cursor.toArray();
+            res.send(recipes);
+        })
         console.log("Pinged your deployment. You successfully connected to MongoDB!");
     } finally {
         // Ensures that the client will close when you finish/error
