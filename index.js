@@ -31,17 +31,20 @@ async function run() {
         const recipesCollections = db.collection('recipes')
 
         // user related api 
+        // get all users
         app.get('/api/users', async (req, res) => {
             const users = await usersCollection.find().toArray();
             res.send(users);
         });
 
         //  recipe related api 
+        // create recipe
         app.post('/api/recipes', async (req, res) => {
             const recipe = req.body;
             const newRecipe = await recipesCollections.insertOne(recipe);
             res.send(newRecipe);
         });
+        // get all recipes
         app.get('/api/my-recipe', async (req, res) => {
             let query = {};
             if (req.query.authorId) {
@@ -51,6 +54,7 @@ async function run() {
             const recipes = await cursor.toArray();
             res.send(recipes);
         })
+        // get recipe by id
         app.get('/api/my-recipe/:id', async (req, res) => {
             const id = req.params.id;
             console.log(id);
@@ -59,12 +63,20 @@ async function run() {
             const recipe = await recipesCollections.findOne(query);
             res.send(recipe);
         })
+        // update recipe
         app.patch('/api/my-recipe/:id', async (req, res) => {
             const id = req.params.id;
             const recipe = req.body;
             const query = { _id: new ObjectId(id) };
             const updateRecipe = await recipesCollections.updateOne(query, { $set: recipe });
             res.send(updateRecipe);
+        })
+        //delete recipe
+        app.delete('/api/my-recipe/:id', async (req, res) => {
+            const id = req.params.id;
+            const query = { _id: new ObjectId(id) };
+            const deleteRecipe = await recipesCollections.deleteOne(query);
+            res.send(deleteRecipe);
         })
         console.log("Pinged your deployment. You successfully connected to MongoDB!");
     } finally {
