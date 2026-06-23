@@ -27,7 +27,21 @@ async function run() {
         
         // await client.connect();
         const db = client.db("recipely-db");
-       
+        const usersCollection = db.collection("user");
+        const recipesCollections = db.collection('recipes')
+        
+        // user related api 
+        app.get('/api/users', async (req, res) => {
+            const users = await usersCollection.find().toArray();
+            res.send(users);
+        });
+
+        //  recipe related api 
+        app.post('/api/recipes', async (req, res) => {
+            const recipe = req.body;
+            const newRecipe = await recipesCollections.insertOne(recipe);
+            res.send(newRecipe);
+        });
         
         console.log("Pinged your deployment. You successfully connected to MongoDB!");
     } finally {
