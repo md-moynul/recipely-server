@@ -45,6 +45,12 @@ async function run() {
             res.send(newRecipe);
         });
         // get all recipes
+        app.get('/api/recipes', async (req, res) => {
+            const cursor = recipesCollections.find();
+            const recipes = await cursor.toArray();
+            res.send(recipes);
+        })
+        // get all recipes by author
         app.get('/api/my-recipe', async (req, res) => {
             let query = {};
             if (req.query.authorId) {
