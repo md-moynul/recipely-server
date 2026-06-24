@@ -63,8 +63,6 @@ async function run() {
         // get recipe by id
         app.get('/api/my-recipe/:id', async (req, res) => {
             const id = req.params.id;
-            console.log(id);
-
             const query = { _id: new ObjectId(id) };
             const recipe = await recipesCollections.findOne(query);
             res.send(recipe);
@@ -83,6 +81,27 @@ async function run() {
             const query = { _id: new ObjectId(id) };
             const deleteRecipe = await recipesCollections.deleteOne(query);
             res.send(deleteRecipe);
+        })
+        //increment likes
+        app.patch('/api/my-recipe/:id/like', async (req, res) => {
+            const id = req.params.id;
+            const userId = req.query.userId;
+            const query = { _id: new ObjectId(id) };
+            const updateRecipe = await recipesCollections.updateOne(query, {
+                $inc: { likes: 1 },
+                $push: { likedBy: userId }
+            });
+            res.send(updateRecipe);
+        })
+
+        // decrement likes
+        app.patch('/api/my-recipe/:id/dislike', async (req, res) => {
+            const id = req.params.id;
+             const userId = req.query.userId;
+            const query = { _id: new ObjectId(id) };
+            const updateRecipe = await recipesCollections.updateOne(query, { $inc: { likes: -1 },
+            $pull: { likedBy: userId } });
+            res.send(updateRecipe);
         })
         console.log("Pinged your deployment. You successfully connected to MongoDB!");
     } finally {
