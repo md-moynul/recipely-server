@@ -30,6 +30,7 @@ async function run() {
         const usersCollection = db.collection("user");
         const recipesCollections = db.collection('recipes')
         const reportsCollection = db.collection('reports')
+        const favoritesCollection = db.collection('favorites')
 
         // user related api 
         // get all users
@@ -110,6 +111,13 @@ async function run() {
             const newReport = await reportsCollection.insertOne(report);
             res.send(newReport);
         })
+        // add recipe to favorites
+        app.post('/api/favorite', async (req, res) => {
+            const data = req.body;
+            const updateRecipe = await favoritesCollection.insertOne(data);
+            res.send(updateRecipe);
+        })
+        
         console.log("Pinged your deployment. You successfully connected to MongoDB!");
     } finally {
         // Ensures that the client will close when you finish/error
