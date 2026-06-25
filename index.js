@@ -99,10 +99,12 @@ async function run() {
         // decrement likes
         app.patch('/api/my-recipe/:id/dislike', async (req, res) => {
             const id = req.params.id;
-             const userId = req.query.userId;
+            const userId = req.query.userId;
             const query = { _id: new ObjectId(id) };
-            const updateRecipe = await recipesCollections.updateOne(query, { $inc: { likes: -1 },
-            $pull: { likedBy: userId } });
+            const updateRecipe = await recipesCollections.updateOne(query, {
+                $inc: { likes: -1 },
+                $pull: { likedBy: userId }
+            });
             res.send(updateRecipe);
         })
         //report recipe
@@ -117,7 +119,35 @@ async function run() {
             const updateRecipe = await favoritesCollection.insertOne(data);
             res.send(updateRecipe);
         })
-        
+        // remove recipe from favorites
+        app.delete('/api/favorite/:recipeId/:userId', async (req, res) => {
+            const recipeId = req.params.recipeId;
+            const userId = req.params.userId;
+            const query = { recipeId: recipeId, userId: userId };
+            const deleteRecipe = await favoritesCollection.deleteOne(query);
+            res.send(deleteRecipe);
+        })
+        // get all favorites
+        app.get('/api/favorite', async (req, res) => {
+            const cursor = favoritesCollection.find();
+            const favorites = await cursor.toArray();
+            res.send(favorites);
+        })
+        // get favorites by user email
+        app.get('/api/my-recipe/favorite/:email', async (req, res) => {
+            const email = req.params.email;
+            const query = { userEmail: email };
+            const result = await favoritesCollection.find(query).toArray();
+            res.send(result);
+        })
+        //get favorites by user id 
+        app.get('/api/favorite/user/:id', async (req, res) => {
+            const id = req.params.id;
+            const query = { userId: id };
+            console.log(query);
+            const result = await favoritesCollection.find(query).toArray();
+            res.send(result);
+        })
         console.log("Pinged your deployment. You successfully connected to MongoDB!");
     } finally {
         // Ensures that the client will close when you finish/error
