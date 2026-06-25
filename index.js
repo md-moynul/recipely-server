@@ -42,10 +42,16 @@ async function run() {
         app.patch('/api/users/status', async (req, res) => {
             const userId = req.query.userId;
             const status = req.query.status === "true" ? true : false;
-            console.log(typeof status);
-            
             const query = { _id: new ObjectId(userId) };
             const updateUser = await userCollection.updateOne(query, { $set: { isBlocked: status } });
+            res.send(updateUser);
+        })
+        // change isFeatured status
+        app.patch('/api/featured/:id', async (req, res) => {
+            const id = req.params.id;
+            const status = req.query.isFeatured === "true" ? true : false;
+            const query = { _id: new ObjectId(id) };
+            const updateUser = await recipesCollections.updateOne(query, { $set: { isFeatured: status } });
             res.send(updateUser);
         })
         // user related api 
