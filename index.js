@@ -38,7 +38,16 @@ async function run() {
             const users = await userCollection.find().toArray();
             res.send(users);
         });
-
+        // user change status
+        app.patch('/api/users/status', async (req, res) => {
+            const userId = req.query.userId;
+            const status = req.query.status === "true" ? true : false;
+            console.log(typeof status);
+            
+            const query = { _id: new ObjectId(userId) };
+            const updateUser = await userCollection.updateOne(query, { $set: { isBlocked: status } });
+            res.send(updateUser);
+        })
         // user related api 
         // get all users
         app.get('/api/users', async (req, res) => {
