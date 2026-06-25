@@ -31,6 +31,13 @@ async function run() {
         const recipesCollections = db.collection('recipes')
         const reportsCollection = db.collection('reports')
         const favoritesCollection = db.collection('favorites')
+        const userCollection = db.collection('user')
+        // user related api
+        // get all users
+        app.get('/api/users/all', async (req, res) => {
+            const users = await userCollection.find().toArray();
+            res.send(users);
+        });
 
         // user related api 
         // get all users
