@@ -219,6 +219,12 @@ async function run() {
             const result = await plansCollection.findOne(query);
             res.send(result);
         })
+        // get all plans
+        app.get('/api/plans/all', async (req, res) => {
+            const cursor = plansCollection.find();
+            const plans = await cursor.toArray();
+            res.send(plans);
+        })
         console.log("Pinged your deployment. You successfully connected to MongoDB!");
     } finally {
         // Ensures that the client will close when you finish/error
