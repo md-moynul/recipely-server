@@ -170,6 +170,19 @@ async function run() {
             const result = await favoritesCollection.find(query).toArray();
             res.send(result);
         })
+        // get all reports
+        app.get('/api/reports', async (req, res) => {
+            const cursor = reportsCollection.find();
+            const reports = await cursor.toArray();
+            res.send(reports);
+        })
+        // remove report
+        app.delete('/api/reports/:id/dismiss', async (req, res) => {
+            const id = req.params.id;
+            const query = { _id: new ObjectId(id) };
+            const deleteReport = await reportsCollection.deleteOne(query);
+            res.send(deleteReport);
+        })
         console.log("Pinged your deployment. You successfully connected to MongoDB!");
     } finally {
         // Ensures that the client will close when you finish/error
