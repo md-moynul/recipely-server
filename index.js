@@ -32,6 +32,7 @@ async function run() {
         const reportsCollection = db.collection('reports')
         const favoritesCollection = db.collection('favorites')
         const userCollection = db.collection('user')
+        const plansCollection = db.collection('plans')
         // user related api
         // get all users
         app.get('/api/users/all', async (req, res) => {
@@ -84,6 +85,27 @@ async function run() {
             const recipes = await cursor.toArray();
             res.send(recipes);
         })
+        // get recipe by author this month
+        app.get('/api/my-recipe/this-month', async (req, res) => {
+            try {
+                let query = {};
+                if (req.query.authorId) {
+                    query.authorId = req.query.authorId;
+                }
+                const now = new Date();
+                const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1); // e.g., 2026-06-01T00:00:00.000Z
+                const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+                query.createdAt = {
+                    $gte: startOfMonth.toISOString(),
+                    $lte: endOfMonth.toISOString()
+                };
+                const cursor = recipesCollections.find(query);
+                const recipes = await cursor.toArray();
+                res.send(recipes);
+            } catch (error) {
+                res.status(500).send({ error: "Failed to fetch this month's recipes" });
+            }
+        });
         // get recipe by id
         app.get('/api/my-recipe/:id', async (req, res) => {
             const id = req.params.id;
@@ -189,6 +211,13 @@ async function run() {
             const cursor = usersCollection.find(query);
             const users = await cursor.toArray();
             res.send(users);
+        })
+        // get plan by isPremium
+        app.get('/api/plan', async (req, res) => {
+            const status = req.query.isPremium === "true" ? "premium" : 'free';
+            const query = { planId: status };
+            const result = await plansCollection.findOne(query);
+            res.send(result);
         })
         console.log("Pinged your deployment. You successfully connected to MongoDB!");
     } finally {
