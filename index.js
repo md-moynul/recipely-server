@@ -183,6 +183,13 @@ async function run() {
             const deleteReport = await reportsCollection.deleteOne(query);
             res.send(deleteReport);
         })
+        // get all premium users
+        app.get('/api/users/premium', async (req, res) => {
+            const query = { isPremium: true };
+            const cursor = usersCollection.find(query);
+            const users = await cursor.toArray();
+            res.send(users);
+        })
         console.log("Pinged your deployment. You successfully connected to MongoDB!");
     } finally {
         // Ensures that the client will close when you finish/error
