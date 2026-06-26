@@ -213,6 +213,14 @@ async function run() {
             const users = await cursor.toArray();
             res.send(users);
         })
+        // change isPremium status
+        app.patch('/api/users/premium/:userId', async (req, res) => {
+            const userId = req.params.userId;
+            const status = req.query.isPremium === "true" ? true : false;
+            const query = { _id: new ObjectId(userId) };
+            const updateUser = await usersCollection.updateOne(query, { $set: { isPremium: status } });
+            res.send(updateUser);
+        })
         // get plan by isPremium
         app.get('/api/plan', async (req, res) => {
             const status = req.query.isPremium === "true" ? "premium" : 'free';
@@ -232,6 +240,14 @@ async function run() {
             const transaction = req.body;
             const newTransaction = await transactionsCollection.insertOne(transaction);
             res.send(newTransaction);
+        })
+        // get transaction by user Id
+        app.get('/api/transactions/:userId', async (req, res) => {
+            const userId = req.params.userId
+            const query = { userId: userId, purchaseType: 'recipe' }
+            const cursor = transactionsCollection.find(query)
+            const transaction = await cursor.toArray()
+            res.send(transaction)
         })
         console.log("Pinged your deployment. You successfully connected to MongoDB!");
     } finally {
