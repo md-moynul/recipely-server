@@ -33,6 +33,7 @@ async function run() {
         const favoritesCollection = db.collection('favorites')
         const userCollection = db.collection('user')
         const plansCollection = db.collection('plans')
+        const transactionsCollection = db.collection('transactions')
         // user related api
         // get all users
         app.get('/api/users/all', async (req, res) => {
@@ -224,6 +225,13 @@ async function run() {
             const cursor = plansCollection.find();
             const plans = await cursor.toArray();
             res.send(plans);
+        })
+        // transactions related api
+        // post transaction
+        app.post('/api/transactions', async (req, res) => {
+            const transaction = req.body;
+            const newTransaction = await transactionsCollection.insertOne(transaction);
+            res.send(newTransaction);
         })
         console.log("Pinged your deployment. You successfully connected to MongoDB!");
     } finally {
