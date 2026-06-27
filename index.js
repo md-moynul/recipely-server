@@ -86,6 +86,12 @@ async function run() {
             const recipes = await cursor.toArray();
             res.send(recipes);
         })
+        // get featured recipes
+        app.get('/api/recipes/featured', async (req, res) => {
+            const cursor = recipesCollections.find({ isFeatured: true });
+            const recipes = await cursor.toArray();
+            res.send(recipes);
+        })
         // get recipe by author this month
         app.get('/api/my-recipe/this-month', async (req, res) => {
             try {
