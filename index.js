@@ -7,6 +7,7 @@ const cors = require('cors');
 
 require('dotenv').config();
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
+const { createRemoteJWKSet, jwtVerify } = require("jose-cjs");
 
 const port = process.env.PORT || 5000;
 const uri = process.env.MONGODB_URI;
@@ -19,6 +20,47 @@ const client = new MongoClient(uri, {
         deprecationErrors: true,
     }
 });
+const JWKS = createRemoteJWKSet(new URL(`${process.env.CLIENT_URL}/api/auth/jwks`));
+const verifyToken = async (req, res, next) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+        return res.status(401).send("Unauthorized")
+    };
+    const token = authHeader.split(" ")[1];
+    if (!token) {
+        return res.status(401).send("Unauthorized")
+    }
+    try {
+        const { payload } = await jwtVerify(token, JWKS);
+        req.user = payload;
+        next();
+    } catch (error) {
+        return res.status(401).send("Unauthorized")
+    }
+}
+const verifyUser = async (req, res, next) => {
+    const user = req.user;
+    console.log(user);
+    
+    if (user.role !== 'user'){
+        return res.status(403).send("Forbidden")
+    }
+    next();
+}
+const verifyAdmin = async (req, res, next) => {
+    const user = req.user;
+    if (user.role !== 'admin'){
+        return res.status(403).send("Forbidden")
+    }
+    next();
+}
+const verifyAdminOrUser = async (req, res, next) => {
+    const user = req.user;
+    if (user.role !== 'user' && user.role !== 'admin') {
+        return res.status(403).send("Forbidden");
+    }
+    next();
+}
 app.get('/', (req, res) => {
     res.send('Hello World!')
 })
@@ -36,12 +78,12 @@ async function run() {
         const transactionsCollection = db.collection('transactions')
         // user related api
         // get all users
-        app.get('/api/users/all', async (req, res) => {
+        app.get('/api/users/all', verifyToken,verifyAdmin, async (req, res) => {
             const users = await userCollection.find().toArray();
             res.send(users);
         });
         // user change status
-        app.patch('/api/users/status', async (req, res) => {
+        app.patch('/api/users/status',verifyToken,verifyAdmin, async (req, res) => {
             const userId = req.query.userId;
             const status = req.query.status === "true" ? true : false;
             const query = { _id: new ObjectId(userId) };
@@ -56,16 +98,9 @@ async function run() {
             const updateUser = await recipesCollections.updateOne(query, { $set: { isFeatured: status } });
             res.send(updateUser);
         })
-        // user related api 
-        // get all users
-        app.get('/api/users', async (req, res) => {
-            const users = await usersCollection.find().toArray();
-            res.send(users);
-        });
-
         //  recipe related api 
         // create recipe
-        app.post('/api/recipes', async (req, res) => {
+        app.post('/api/recipes', verifyToken,verifyUser, async (req, res) => {
             const recipe = req.body;
             const newRecipe = await recipesCollections.insertOne(recipe);
             res.send(newRecipe);
@@ -127,7 +162,7 @@ async function run() {
             res.send(recipe);
         })
         // update recipe
-        app.patch('/api/my-recipe/:id', async (req, res) => {
+        app.patch('/api/my-recipe/:id',verifyToken,verifyAdminOrUser, async (req, res) => {
             const id = req.params.id;
             const recipe = req.body;
             const query = { _id: new ObjectId(id) };
@@ -135,7 +170,7 @@ async function run() {
             res.send(updateRecipe);
         })
         //delete recipe
-        app.delete('/api/my-recipe/:id', async (req, res) => {
+        app.delete('/api/my-recipe/:id',verifyToken,verifyAdminOrUser, async (req, res) => {
             const id = req.params.id;
             const query = { _id: new ObjectId(id) };
             const deleteRecipe = await recipesCollections.deleteOne(query);
@@ -212,7 +247,7 @@ async function run() {
             res.send(reports);
         })
         // remove report
-        app.delete('/api/reports/:id/dismiss', async (req, res) => {
+        app.delete('/api/reports/:id/dismiss',verifyToken,verifyAdmin, async (req, res) => {
             const id = req.params.id;
             const query = { _id: new ObjectId(id) };
             const deleteReport = await reportsCollection.deleteOne(query);
