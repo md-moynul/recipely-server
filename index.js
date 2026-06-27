@@ -92,6 +92,12 @@ async function run() {
             const recipes = await cursor.toArray();
             res.send(recipes);
         })
+        // get popular recipes
+        app.get('/api/recipes/popular', async (req, res) => {
+            const cursor = recipesCollections.find().sort({ likes: -1 }).limit(6);
+            const recipes = await cursor.toArray();
+            res.send(recipes);
+        })
         // get recipe by author this month
         app.get('/api/my-recipe/this-month', async (req, res) => {
             try {
