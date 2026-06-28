@@ -105,9 +105,13 @@ async function run() {
         });
         // get all recipes
         app.get('/api/recipes', async (req, res) => {
-            const cursor = recipesCollections.find();
+            const { page=1, limit=12 } = req.query;
+            const skip = (Number(page) - 1) * Number(limit);
+            const cursor = recipesCollections.find().skip(skip).limit(Number(limit));
             const recipes = await cursor.toArray();
-            res.send(recipes);
+            const total = await recipesCollections.countDocuments();
+            const totalPages = Math.ceil(total / limit);
+            res.send({ data: recipes, totalPages , page, limit });
         })
         // get all recipes by author
         app.get('/api/my-recipe',verifyToken,verifyUser, async (req, res) => {
@@ -281,7 +285,7 @@ async function run() {
         })
         // get all transactions
         app.get('/api/transactions',verifyToken,verifyAdmin, async (req, res) => {
-            const cursor = transactionsCollection.find();
+            const cursor = transactionsCollection.find().sort({ paidAt: -1 });
             const transactions = await cursor.toArray();
             res.send(transactions);
         })
