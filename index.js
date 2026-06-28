@@ -40,8 +40,6 @@ const verifyToken = async (req, res, next) => {
 }
 const verifyUser = async (req, res, next) => {
     const user = req.user;
-    console.log(user);
-    
     if (user.role !== 'user'){
         return res.status(403).send("Forbidden")
     }
@@ -112,7 +110,7 @@ async function run() {
             res.send(recipes);
         })
         // get all recipes by author
-        app.get('/api/my-recipe', async (req, res) => {
+        app.get('/api/my-recipe',verifyToken,verifyUser, async (req, res) => {
             let query = {};
             if (req.query.authorId) {
                 query.authorId = req.query.authorId
@@ -134,7 +132,7 @@ async function run() {
             res.send(recipes);
         })
         // get recipe by author this month
-        app.get('/api/my-recipe/this-month', async (req, res) => {
+        app.get('/api/my-recipe/this-month',verifyToken,verifyUser, async (req, res) => {
             try {
                 let query = {};
                 if (req.query.authorId) {
@@ -268,18 +266,24 @@ async function run() {
         })
         // transactions related api
         // post transaction
-        app.post('/api/transactions', async (req, res) => {
+        app.post('/api/transactions',verifyToken,verifyUser, async (req, res) => {
             const transaction = req.body;
             const newTransaction = await transactionsCollection.insertOne(transaction);
             res.send(newTransaction);
         })
         // get transaction by user Id
-        app.get('/api/transactions/:userId', async (req, res) => {
+        app.get('/api/transactions/:userId',verifyToken,verifyUser, async (req, res) => {
             const userId = req.params.userId
             const query = { userId: userId, purchaseType: 'recipe' }
             const cursor = transactionsCollection.find(query)
             const transaction = await cursor.toArray()
             res.send(transaction)
+        })
+        // get all transactions
+        app.get('/api/transactions',verifyToken,verifyAdmin, async (req, res) => {
+            const cursor = transactionsCollection.find();
+            const transactions = await cursor.toArray();
+            res.send(transactions);
         })
         console.log("Pinged your deployment. You successfully connected to MongoDB!");
     } finally {
