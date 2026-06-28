@@ -91,7 +91,7 @@ async function run() {
             res.send(updateUser);
         })
         // change isFeatured status
-        app.patch('/api/featured/:id', async (req, res) => {
+        app.patch('/api/featured/:id',verifyToken,verifyAdmin, async (req, res) => {
             const id = req.params.id;
             const status = req.query.isFeatured === "true" ? true : false;
             const query = { _id: new ObjectId(id) };
@@ -177,7 +177,7 @@ async function run() {
             res.send(deleteRecipe);
         })
         //increment likes
-        app.patch('/api/my-recipe/:id/like', async (req, res) => {
+        app.patch('/api/my-recipe/:id/like',verifyToken, async (req, res) => {
             const id = req.params.id;
             const userId = req.query.userId;
             const query = { _id: new ObjectId(id) };
@@ -189,7 +189,7 @@ async function run() {
         })
 
         // decrement likes
-        app.patch('/api/my-recipe/:id/dislike', async (req, res) => {
+        app.patch('/api/my-recipe/:id/dislike',verifyToken, async (req, res) => {
             const id = req.params.id;
             const userId = req.query.userId;
             const query = { _id: new ObjectId(id) };
@@ -200,48 +200,33 @@ async function run() {
             res.send(updateRecipe);
         })
         //report recipe
-        app.post('/api/report', async (req, res) => {
+        app.post('/api/report',verifyToken, async (req, res) => {
             const report = req.body;
             const newReport = await reportsCollection.insertOne(report);
             res.send(newReport);
         })
         // add recipe to favorites
-        app.post('/api/favorite', async (req, res) => {
+        app.post('/api/favorite',verifyToken, async (req, res) => {
             const data = req.body;
             const updateRecipe = await favoritesCollection.insertOne(data);
             res.send(updateRecipe);
         })
         // remove recipe from favorites
-        app.delete('/api/favorite/:recipeId/:userId', async (req, res) => {
+        app.delete('/api/favorite/:recipeId/:userId', verifyToken,verifyUser, async (req, res) => {
             const recipeId = req.params.recipeId;
             const userId = req.params.userId;
             const query = { recipeId: recipeId, userId: userId };
             const deleteRecipe = await favoritesCollection.deleteOne(query);
             res.send(deleteRecipe);
         })
-        // get all favorites
-        app.get('/api/favorite', async (req, res) => {
-            const cursor = favoritesCollection.find();
-            const favorites = await cursor.toArray();
-            res.send(favorites);
-        })
         // get favorites by user email
-        app.get('/api/my-recipe/favorite/:email', async (req, res) => {
+        app.get('/api/my-recipe/favorite/:email',verifyToken,verifyUser, async (req, res) => {
             const email = req.params.email;
             const query = { userEmail: email };
             const result = await favoritesCollection.find(query).toArray();
             res.send(result);
         })
-        //get favorites by user id 
-        app.get('/api/favorite/user/:id', async (req, res) => {
-            const id = req.params.id;
-            const query = { userId: id };
-            console.log(query);
-            const result = await favoritesCollection.find(query).toArray();
-            res.send(result);
-        })
-        // get all reports
-        app.get('/api/reports', async (req, res) => {
+        app.get('/api/reports',verifyToken,verifyAdmin, async (req, res) => {
             const cursor = reportsCollection.find();
             const reports = await cursor.toArray();
             res.send(reports);
@@ -254,14 +239,14 @@ async function run() {
             res.send(deleteReport);
         })
         // get all premium users
-        app.get('/api/users/premium', async (req, res) => {
+        app.get('/api/users/premium',verifyToken,verifyAdmin, async (req, res) => {
             const query = { isPremium: true };
             const cursor = usersCollection.find(query);
             const users = await cursor.toArray();
             res.send(users);
         })
         // change isPremium status
-        app.patch('/api/users/premium/:userId', async (req, res) => {
+        app.patch('/api/users/premium/:userId',verifyToken, async (req, res) => {
             const userId = req.params.userId;
             const status = req.query.isPremium === "true" ? true : false;
             const query = { _id: new ObjectId(userId) };
