@@ -107,11 +107,17 @@ async function run() {
         app.get('/api/recipes', async (req, res) => {
             const { page=1, limit=12 } = req.query;
             const skip = (Number(page) - 1) * Number(limit);
-            const cursor = recipesCollections.find().skip(skip).limit(Number(limit));
+            const cursor = recipesCollections.find().skip(skip).limit(Number(limit)).sort({ createdAt: -1 });
             const recipes = await cursor.toArray();
             const total = await recipesCollections.countDocuments();
             const totalPages = Math.ceil(total / limit);
             res.send({ data: recipes, totalPages , page, limit });
+        })
+        // get all recipe to use admin 
+        app.get('/api/recipes/admin', verifyToken,verifyAdmin, async (req, res) => {
+            const cursor = recipesCollections.find();
+            const recipes = await cursor.toArray();
+            res.send( recipes);
         })
         // get all recipes by author
         app.get('/api/my-recipe',verifyToken,verifyUser, async (req, res) => {
@@ -125,13 +131,13 @@ async function run() {
         })
         // get featured recipes
         app.get('/api/recipes/featured', async (req, res) => {
-            const cursor = recipesCollections.find({ isFeatured: true });
+            const cursor = recipesCollections.find({ isFeatured: true }).sort({ createdAt: -1 });
             const recipes = await cursor.toArray();
             res.send(recipes);
         })
         // get popular recipes
         app.get('/api/recipes/popular', async (req, res) => {
-            const cursor = recipesCollections.find().sort({ likes: -1 }).limit(6);
+            const cursor = recipesCollections.find().sort({ likes: -1 ,createdAt: -1 }).limit(6);
             const recipes = await cursor.toArray();
             res.send(recipes);
         })
