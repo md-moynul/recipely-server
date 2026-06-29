@@ -40,14 +40,14 @@ const verifyToken = async (req, res, next) => {
 }
 const verifyUser = async (req, res, next) => {
     const user = req.user;
-    if (user.role !== 'user'){
+    if (user.role !== 'user') {
         return res.status(403).send("Forbidden")
     }
     next();
 }
 const verifyAdmin = async (req, res, next) => {
     const user = req.user;
-    if (user.role !== 'admin'){
+    if (user.role !== 'admin') {
         return res.status(403).send("Forbidden")
     }
     next();
@@ -76,12 +76,12 @@ async function run() {
         const transactionsCollection = db.collection('transactions')
         // user related api
         // get all users
-        app.get('/api/users/all', verifyToken,verifyAdmin, async (req, res) => {
+        app.get('/api/users/all', verifyToken, verifyAdmin, async (req, res) => {
             const users = await userCollection.find().toArray();
             res.send(users);
         });
         // user change status
-        app.patch('/api/users/status',verifyToken,verifyAdmin, async (req, res) => {
+        app.patch('/api/users/status', verifyToken, verifyAdmin, async (req, res) => {
             const userId = req.query.userId;
             const status = req.query.status === "true" ? true : false;
             const query = { _id: new ObjectId(userId) };
@@ -89,7 +89,7 @@ async function run() {
             res.send(updateUser);
         })
         // change isFeatured status
-        app.patch('/api/featured/:id',verifyToken,verifyAdmin, async (req, res) => {
+        app.patch('/api/featured/:id', verifyToken, verifyAdmin, async (req, res) => {
             const id = req.params.id;
             const status = req.query.isFeatured === "true" ? true : false;
             const query = { _id: new ObjectId(id) };
@@ -98,29 +98,42 @@ async function run() {
         })
         //  recipe related api 
         // create recipe
-        app.post('/api/recipes', verifyToken,verifyUser, async (req, res) => {
+        app.post('/api/recipes', verifyToken, verifyUser, async (req, res) => {
             const recipe = req.body;
             const newRecipe = await recipesCollections.insertOne(recipe);
             res.send(newRecipe);
         });
         // get all recipes
         app.get('/api/recipes', async (req, res) => {
-            const { page=1, limit=12 } = req.query;
+            const { page = 1, limit = 12, category ,search,cuisineType,difficultyLevel } = req.query;
             const skip = (Number(page) - 1) * Number(limit);
-            const cursor = recipesCollections.find().skip(skip).limit(Number(limit)).sort({ createdAt: -1 });
+            let query = {};
+            if (search) {
+                query.recipeName = { $regex: search, $options: 'i' }
+            }
+            if (category) {
+                query.category = { $in: [category] }
+            }
+            if (cuisineType) {
+                query.cuisineType = { $in: [cuisineType] }
+            }
+            if (difficultyLevel) {
+                query.difficultyLevel = { $in: [difficultyLevel] }
+            }
+            const cursor = recipesCollections.find(query).skip(skip).limit(Number(limit)).sort({ createdAt: -1 });
             const recipes = await cursor.toArray();
             const total = await recipesCollections.countDocuments();
             const totalPages = Math.ceil(total / limit);
-            res.send({ data: recipes, totalPages , page, limit });
+            res.send({ data: recipes, totalPages, page, limit });
         })
         // get all recipe to use admin 
-        app.get('/api/recipes/admin', verifyToken,verifyAdmin, async (req, res) => {
-            const cursor = recipesCollections.find();
+        app.get('/api/recipes/admin', verifyToken, verifyAdmin, async (req, res) => {
+            const cursor = recipesCollections.find().sort({ createdAt: -1 });
             const recipes = await cursor.toArray();
-            res.send( recipes);
+            res.send(recipes);
         })
         // get all recipes by author
-        app.get('/api/my-recipe',verifyToken,verifyUser, async (req, res) => {
+        app.get('/api/my-recipe', verifyToken, verifyUser, async (req, res) => {
             let query = {};
             if (req.query.authorId) {
                 query.authorId = req.query.authorId
@@ -137,12 +150,12 @@ async function run() {
         })
         // get popular recipes
         app.get('/api/recipes/popular', async (req, res) => {
-            const cursor = recipesCollections.find().sort({ likes: -1 ,createdAt: -1 }).limit(6);
+            const cursor = recipesCollections.find().sort({ likes: -1, createdAt: -1 }).limit(6);
             const recipes = await cursor.toArray();
             res.send(recipes);
         })
         // get recipe by author this month
-        app.get('/api/my-recipe/this-month',verifyToken,verifyUser, async (req, res) => {
+        app.get('/api/my-recipe/this-month', verifyToken, verifyUser, async (req, res) => {
             try {
                 let query = {};
                 if (req.query.authorId) {
@@ -170,7 +183,7 @@ async function run() {
             res.send(recipe);
         })
         // update recipe
-        app.patch('/api/my-recipe/:id',verifyToken,verifyAdminOrUser, async (req, res) => {
+        app.patch('/api/my-recipe/:id', verifyToken, verifyAdminOrUser, async (req, res) => {
             const id = req.params.id;
             const recipe = req.body;
             const query = { _id: new ObjectId(id) };
@@ -178,14 +191,14 @@ async function run() {
             res.send(updateRecipe);
         })
         //delete recipe
-        app.delete('/api/my-recipe/:id',verifyToken,verifyAdminOrUser, async (req, res) => {
+        app.delete('/api/my-recipe/:id', verifyToken, verifyAdminOrUser, async (req, res) => {
             const id = req.params.id;
             const query = { _id: new ObjectId(id) };
             const deleteRecipe = await recipesCollections.deleteOne(query);
             res.send(deleteRecipe);
         })
         //increment likes
-        app.patch('/api/my-recipe/:id/like',verifyToken, async (req, res) => {
+        app.patch('/api/my-recipe/:id/like', verifyToken, async (req, res) => {
             const id = req.params.id;
             const userId = req.query.userId;
             const query = { _id: new ObjectId(id) };
@@ -197,7 +210,7 @@ async function run() {
         })
 
         // decrement likes
-        app.patch('/api/my-recipe/:id/dislike',verifyToken, async (req, res) => {
+        app.patch('/api/my-recipe/:id/dislike', verifyToken, async (req, res) => {
             const id = req.params.id;
             const userId = req.query.userId;
             const query = { _id: new ObjectId(id) };
@@ -208,19 +221,19 @@ async function run() {
             res.send(updateRecipe);
         })
         //report recipe
-        app.post('/api/report',verifyToken, async (req, res) => {
+        app.post('/api/report', verifyToken, async (req, res) => {
             const report = req.body;
             const newReport = await reportsCollection.insertOne(report);
             res.send(newReport);
         })
         // add recipe to favorites
-        app.post('/api/favorite',verifyToken, async (req, res) => {
+        app.post('/api/favorite', verifyToken, async (req, res) => {
             const data = req.body;
             const updateRecipe = await favoritesCollection.insertOne(data);
             res.send(updateRecipe);
         })
         // remove recipe from favorites
-        app.delete('/api/favorite/:recipeId/:userId', verifyToken,verifyUser, async (req, res) => {
+        app.delete('/api/favorite/:recipeId/:userId', verifyToken, verifyUser, async (req, res) => {
             const recipeId = req.params.recipeId;
             const userId = req.params.userId;
             const query = { recipeId: recipeId, userId: userId };
@@ -228,33 +241,33 @@ async function run() {
             res.send(deleteRecipe);
         })
         // get favorites by user email
-        app.get('/api/my-recipe/favorite/:email',verifyToken,verifyUser, async (req, res) => {
+        app.get('/api/my-recipe/favorite/:email', verifyToken, verifyUser, async (req, res) => {
             const email = req.params.email;
             const query = { userEmail: email };
             const result = await favoritesCollection.find(query).toArray();
             res.send(result);
         })
-        app.get('/api/reports',verifyToken,verifyAdmin, async (req, res) => {
+        app.get('/api/reports', verifyToken, verifyAdmin, async (req, res) => {
             const cursor = reportsCollection.find();
             const reports = await cursor.toArray();
             res.send(reports);
         })
         // remove report
-        app.delete('/api/reports/:id/dismiss',verifyToken,verifyAdmin, async (req, res) => {
+        app.delete('/api/reports/:id/dismiss', verifyToken, verifyAdmin, async (req, res) => {
             const id = req.params.id;
             const query = { _id: new ObjectId(id) };
             const deleteReport = await reportsCollection.deleteOne(query);
             res.send(deleteReport);
         })
         // get all premium users
-        app.get('/api/users/premium',verifyToken,verifyAdmin, async (req, res) => {
+        app.get('/api/users/premium', verifyToken, verifyAdmin, async (req, res) => {
             const query = { isPremium: true };
             const cursor = usersCollection.find(query);
             const users = await cursor.toArray();
             res.send(users);
         })
         // change isPremium status
-        app.patch('/api/users/premium/:userId',verifyToken, async (req, res) => {
+        app.patch('/api/users/premium/:userId', verifyToken, async (req, res) => {
             const userId = req.params.userId;
             const status = req.query.isPremium === "true" ? true : false;
             const query = { _id: new ObjectId(userId) };
@@ -276,13 +289,13 @@ async function run() {
         })
         // transactions related api
         // post transaction
-        app.post('/api/transactions',verifyToken,verifyUser, async (req, res) => {
+        app.post('/api/transactions', verifyToken, verifyUser, async (req, res) => {
             const transaction = req.body;
             const newTransaction = await transactionsCollection.insertOne(transaction);
             res.send(newTransaction);
         })
         // get transaction by user Id
-        app.get('/api/transactions/:userId',verifyToken,verifyUser, async (req, res) => {
+        app.get('/api/transactions/:userId', verifyToken, verifyUser, async (req, res) => {
             const userId = req.params.userId
             const query = { userId: userId, purchaseType: 'recipe' }
             const cursor = transactionsCollection.find(query)
@@ -290,7 +303,7 @@ async function run() {
             res.send(transaction)
         })
         // get all transactions
-        app.get('/api/transactions',verifyToken,verifyAdmin, async (req, res) => {
+        app.get('/api/transactions', verifyToken, verifyAdmin, async (req, res) => {
             const cursor = transactionsCollection.find().sort({ paidAt: -1 });
             const transactions = await cursor.toArray();
             res.send(transactions);
