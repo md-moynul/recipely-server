@@ -128,7 +128,7 @@ async function run() {
             }
             const cursor = recipesCollections.find(query).skip(skip).limit(Number(limit)).sort({ createdAt: -1 });
             const recipes = await cursor.toArray();
-            const total = await recipesCollections.countDocuments();
+            const total = await recipesCollections.countDocuments(query);
             const totalPages = Math.ceil(total / limit);
             res.send({ data: recipes, totalPages, page, limit });
         })
@@ -156,9 +156,14 @@ async function run() {
         })
         // get popular recipes
         app.get('/api/recipes/popular', async (req, res) => {
-            const cursor = recipesCollections.find().sort({ likes: -1, createdAt: -1 }).limit(6);
+            const { page = 1, limit = 8 } = req.query;
+            const skip = (Number(page) - 1) * Number(limit);
+            const query ={ likes: -1, createdAt: -1 };
+            const cursor = recipesCollections.find().sort(query).skip(skip).limit(Number(limit));
+            const total = await recipesCollections.countDocuments();
+            const totalPages = Math.ceil(total / limit);
             const recipes = await cursor.toArray();
-            res.send(recipes);
+            res.send({recipes:recipes,totalPages,page,limit});
         })
         // get recipe by author this month
         app.get('/api/my-recipe/this-month', verifyToken, verifyUser, async (req, res) => {
