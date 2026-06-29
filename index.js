@@ -80,6 +80,12 @@ async function run() {
             const users = await userCollection.find().toArray();
             res.send(users);
         });
+        app.get('/api/user/:id',verifyToken, async (req, res) => {
+            const id = req.params.id;
+            const query = { _id: new ObjectId(id) };
+            const user = await userCollection.findOne(query);
+            res.send(user);
+        })
         // user change status
         app.patch('/api/users/status', verifyToken, verifyAdmin, async (req, res) => {
             const userId = req.query.userId;
