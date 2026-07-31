@@ -168,9 +168,6 @@ async function run() {
         app.get('/api/recipes/details/:id', verifyToken, async (req, res) => {
             try {
                 const recipeId = req.params.id;
-
-                // Extract userId injected by verifyToken middleware from JWT payload
-                // (Assumes payload contains user's _id or sub string; fallback to req.user.id if applicable)
                 const userId = req.user._id || req.user.id || req.user.sub;
 
                 if (!ObjectId.isValid(recipeId)) {
@@ -183,7 +180,13 @@ async function run() {
                     return res.status(404).send({ message: "Recipe not found" });
                 }
 
-                // 2. Check if the authenticated user has purchased this recipe
+                // 2. Check ownership, admin status, premium status, or payment record
+                const isAuthor = recipe.authorId === userId;
+                const isAdmin = req.user.role === 'admin';
+
+                const userDoc = await userCollection.findOne({ _id: new ObjectId(userId) });
+                const isPremium = !!userDoc?.isPremium;
+
                 const paymentRecord = await transactionsCollection.findOne({
                     userId: userId,
                     recipeId: recipeId,
@@ -191,16 +194,20 @@ async function run() {
                     paymentStatus: 'succeeded'
                 });
 
-                // Optional: Allow the recipe author or admin full access automatically
-                const isAuthor = recipe.authorId === userId;
-                const isAdmin = req.user.role === 'admin';
-                const isPaid = !!paymentRecord || isAuthor || isAdmin;
+                // Determine paymentStatus string based on condition
+                let paymentStatus = "unpaid";
 
-                // 3. Conditional payload response based on payment status
-                if (isPaid) {
+                if (isAuthor) {
+                    paymentStatus = "owner";
+                } else if (isAdmin || isPremium || !!paymentRecord) {
+                    paymentStatus = "paid";
+                }
+
+                // 3. Conditional payload response based on access level
+                if (paymentStatus === "owner" || paymentStatus === "paid") {
                     return res.send({
                         ...recipe,
-                        paymentStatus: "paid"
+                        paymentStatus
                     });
                 } else {
                     // Strip out restricted fields (instructions & ingredients)
