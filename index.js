@@ -38,6 +38,21 @@ const verifyToken = async (req, res, next) => {
         return res.status(401).send("Unauthorized")
     }
 }
+const verifyOptionalToken = async (req, res, next) => {
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+        const token = authHeader.split(" ")[1];
+        if (token && token !== "undefined" && token !== "null") {
+            try {
+                const { payload } = await jwtVerify(token, JWKS);
+                req.user = payload;
+            } catch (error) {
+                // Ignore error for optional token
+            }
+        }
+    }
+    next();
+}
 const verifyUser = async (req, res, next) => {
     const user = req.user;
     if (user.role !== 'user') {
@@ -80,7 +95,7 @@ async function run() {
             const users = await userCollection.find().toArray();
             res.send(users);
         });
-        app.get('/api/user/:id',verifyToken, async (req, res) => {
+        app.get('/api/user/:id', verifyToken, async (req, res) => {
             const id = req.params.id;
             const query = { _id: new ObjectId(id) };
             const user = await userCollection.findOne(query);
@@ -111,7 +126,7 @@ async function run() {
         });
         // get all recipes
         app.get('/api/recipes', async (req, res) => {
-            const { page = 1, limit = 12, category ,search,cuisineType,difficultyLevel } = req.query;
+            const { page = 1, limit = 12, category, search, cuisineType, difficultyLevel } = req.query;
             const skip = (Number(page) - 1) * Number(limit);
             let query = {};
             if (search) {
@@ -148,6 +163,59 @@ async function run() {
             const recipes = await cursor.toArray();
             res.send(recipes);
         })
+        // get check payment recipe
+        // Get single recipe details with payment verification
+        app.get('/api/recipes/details/:id', verifyToken, async (req, res) => {
+            try {
+                const recipeId = req.params.id;
+
+                // Extract userId injected by verifyToken middleware from JWT payload
+                // (Assumes payload contains user's _id or sub string; fallback to req.user.id if applicable)
+                const userId = req.user._id || req.user.id || req.user.sub;
+
+                if (!ObjectId.isValid(recipeId)) {
+                    return res.status(400).send({ message: "Invalid Recipe ID format" });
+                }
+
+                // 1. Fetch the recipe
+                const recipe = await recipesCollections.findOne({ _id: new ObjectId(recipeId) });
+                if (!recipe) {
+                    return res.status(404).send({ message: "Recipe not found" });
+                }
+
+                // 2. Check if the authenticated user has purchased this recipe
+                const paymentRecord = await transactionsCollection.findOne({
+                    userId: userId,
+                    recipeId: recipeId,
+                    purchaseType: 'recipe',
+                    paymentStatus: 'succeeded'
+                });
+
+                // Optional: Allow the recipe author or admin full access automatically
+                const isAuthor = recipe.authorId === userId;
+                const isAdmin = req.user.role === 'admin';
+                const isPaid = !!paymentRecord || isAuthor || isAdmin;
+
+                // 3. Conditional payload response based on payment status
+                if (isPaid) {
+                    return res.send({
+                        ...recipe,
+                        paymentStatus: "paid"
+                    });
+                } else {
+                    // Strip out restricted fields (instructions & ingredients)
+                    const { instructions, ingredients, ...publicRecipeData } = recipe;
+                    return res.send({
+                        ...publicRecipeData,
+                        paymentStatus: "unpaid"
+                    });
+                }
+
+            } catch (error) {
+                console.error("Error fetching recipe details:", error);
+                return res.status(500).send({ message: "Internal server error" });
+            }
+        });
         // get featured recipes
         app.get('/api/recipes/featured', async (req, res) => {
             const cursor = recipesCollections.find({ isFeatured: true }).sort({ createdAt: -1 });
@@ -158,12 +226,12 @@ async function run() {
         app.get('/api/recipes/popular', async (req, res) => {
             const { page = 1, limit = 8 } = req.query;
             const skip = (Number(page) - 1) * Number(limit);
-            const query ={ likes: -1, createdAt: -1 };
+            const query = { likes: -1, createdAt: -1 };
             const cursor = recipesCollections.find().sort(query).skip(skip).limit(Number(limit));
             const total = await recipesCollections.countDocuments();
             const totalPages = Math.ceil(total / limit);
             const recipes = await cursor.toArray();
-            res.send({recipes:recipes,totalPages,page,limit});
+            res.send({ recipes: recipes, totalPages, page, limit });
         })
         // get recipe by author this month
         app.get('/api/my-recipe/this-month', verifyToken, verifyUser, async (req, res) => {
@@ -187,11 +255,48 @@ async function run() {
             }
         });
         // get recipe by id
-        app.get('/api/my-recipe/:id', async (req, res) => {
-            const id = req.params.id;
-            const query = { _id: new ObjectId(id) };
-            const recipe = await recipesCollections.findOne(query);
-            res.send(recipe);
+        app.get('/api/my-recipe/:id', verifyOptionalToken, async (req, res) => {
+            try {
+                const id = req.params.id;
+                if (!ObjectId.isValid(id)) {
+                    return res.status(400).send({ message: "Invalid Recipe ID format" });
+                }
+                const query = { _id: new ObjectId(id) };
+                const recipe = await recipesCollections.findOne(query);
+                if (!recipe) {
+                    return res.status(404).send({ message: "Recipe not found" });
+                }
+
+                let isPaid = false;
+
+                if (req.user) {
+                    const userId = req.user._id || req.user.id || req.user.sub;
+                    const isAuthor = recipe.authorId === userId;
+                    const isAdmin = req.user.role === 'admin';
+
+                    const paymentRecord = await transactionsCollection.findOne({
+                        userId: userId,
+                        recipeId: id,
+                        purchaseType: 'recipe',
+                        paymentStatus: 'succeeded'
+                    });
+
+                    const userDoc = await userCollection.findOne({ _id: new ObjectId(userId) });
+                    const isPremium = userDoc?.isPremium;
+
+                    isPaid = !!paymentRecord || isAuthor || isAdmin || isPremium;
+                }
+
+                if (isPaid) {
+                    return res.send({ ...recipe, paymentStatus: "paid" });
+                } else {
+                    const { instructions, ingredients, ...publicRecipeData } = recipe;
+                    return res.send({ ...publicRecipeData, paymentStatus: "unpaid" });
+                }
+            } catch (error) {
+                console.error("Error fetching recipe:", error);
+                return res.status(500).send({ message: "Internal server error" });
+            }
         })
         // update recipe
         app.patch('/api/my-recipe/:id', verifyToken, verifyAdminOrUser, async (req, res) => {
@@ -244,7 +349,7 @@ async function run() {
             res.send(updateRecipe);
         })
         // remove recipe from favorites
-        app.delete('/api/favorite/:recipeId/:userId', verifyToken, verifyUser, async (req, res) => {
+        app.delete('/api/favorite/:recipeId/:userId', verifyToken, async (req, res) => {
             const recipeId = req.params.recipeId;
             const userId = req.params.userId;
             const query = { recipeId: recipeId, userId: userId };
@@ -252,7 +357,7 @@ async function run() {
             res.send(deleteRecipe);
         })
         // get favorites by user email
-        app.get('/api/my-recipe/favorite/:email', verifyToken, verifyUser, async (req, res) => {
+        app.get('/api/my-recipe/favorite/:email', verifyToken, async (req, res) => {
             const email = req.params.email;
             const query = { userEmail: email };
             const result = await favoritesCollection.find(query).toArray();
@@ -313,6 +418,60 @@ async function run() {
             const transaction = await cursor.toArray()
             res.send(transaction)
         })
+        // dashboard overview api endpoints
+        app.get('/api/dashboard/admin/overview', verifyToken, verifyAdmin, async (req, res) => {
+            try {
+                const [totalUsers, totalRecipes, totalPremiumUsers, totalReports] = await Promise.all([
+                    usersCollection.countDocuments(),
+                    recipesCollections.countDocuments(),
+                    usersCollection.countDocuments({ isPremium: true }),
+                    reportsCollection.countDocuments()
+                ]);
+
+                res.send({
+                    totalUsers,
+                    totalRecipes,
+                    totalPremiumUsers,
+                    totalReports
+                });
+            } catch (error) {
+                console.error("Error fetching admin dashboard overview:", error);
+                res.status(500).send({ message: "Internal server error" });
+            }
+        });
+
+        app.get('/api/dashboard/user/overview', verifyToken, async (req, res) => {
+            try {
+                const userId = req.user._id || req.user.id || req.user.sub;
+                const userEmail = req.user.email;
+
+                const [myRecipesCount, favoritesCount, purchasedCount, userDoc, likesAgg] = await Promise.all([
+                    recipesCollections.countDocuments({ authorId: userId }),
+                    userEmail ? favoritesCollection.countDocuments({ userEmail: userEmail }) : (userId ? favoritesCollection.countDocuments({ userId: userId }) : 0),
+                    transactionsCollection.countDocuments({ userId: userId, purchaseType: 'recipe' }),
+                    ObjectId.isValid(userId) ? usersCollection.findOne({ _id: new ObjectId(userId) }) : null,
+                    recipesCollections.aggregate([
+                        { $match: { authorId: userId } },
+                        { $group: { _id: null, totalLikes: { $sum: "$likes" } } }
+                    ]).toArray()
+                ]);
+
+                const totalLikesReceived = likesAgg[0]?.totalLikes || 0;
+                const isPremium = !!userDoc?.isPremium;
+
+                res.send({
+                    totalRecipes: myRecipesCount,
+                    totalFavorites: favoritesCount,
+                    totalLikesReceived,
+                    totalPurchased: purchasedCount,
+                    isPremium
+                });
+            } catch (error) {
+                console.error("Error fetching user dashboard overview:", error);
+                res.status(500).send({ message: "Internal server error" });
+            }
+        });
+
         // get all transactions
         app.get('/api/transactions', verifyToken, verifyAdmin, async (req, res) => {
             const cursor = transactionsCollection.find().sort({ paidAt: -1 });
