@@ -688,18 +688,24 @@ async function run() {
         // 5. Get reviews received on recipes published by the logged-in user (Author's Recipe Reviews)
         app.get('/api/my-reviews', verifyToken, async (req, res) => {
             try {
+                const authorIdParam = req.query.authorId;
                 const userId = req.user._id || req.user.id || req.user.sub;
-                if (!userId) {
-                    return res.status(401).send({ message: "User not identified" });
-                }
+                
+                const authorIds = [
+                    authorIdParam,
+                    userId,
+                    req.user?.id,
+                    req.user?._id,
+                    req.user?.sub
+                ].filter(Boolean);
 
-                const authorIds = [userId, req.user.id, req.user._id, req.user.sub].filter(Boolean);
-                const authorEmails = [req.user.email].filter(Boolean);
+                const authorEmails = [req.user?.email].filter(Boolean);
 
                 // 1. Find all recipes created by this author
                 const authorRecipes = await recipesCollections.find({
                     $or: [
                         { authorId: { $in: authorIds } },
+                        { userId: { $in: authorIds } },
                         ...(authorEmails.length > 0 ? [{ authorEmail: { $in: authorEmails } }] : [])
                     ]
                 }).toArray();
@@ -710,20 +716,27 @@ async function run() {
 
                 const recipeMap = {};
                 const recipeIdStrings = [];
+                const recipeObjectIds = [];
+
                 authorRecipes.forEach(rec => {
                     const idStr = rec._id.toString();
                     recipeIdStrings.push(idStr);
+                    recipeObjectIds.push(rec._id);
                     recipeMap[idStr] = rec;
                 });
 
                 // 2. Fetch all reviews for this author's recipes
                 const reviews = await reviewsCollection.find({
-                    recipeId: { $in: recipeIdStrings }
+                    $or: [
+                        { recipeId: { $in: recipeIdStrings } },
+                        { recipeId: { $in: recipeObjectIds } }
+                    ]
                 }).sort({ createdAt: -1 }).toArray();
 
                 // 3. Enrich reviews with recipe details
                 const enrichedReviews = reviews.map(r => {
-                    const rec = recipeMap[r.recipeId] || null;
+                    const recIdStr = r.recipeId ? r.recipeId.toString() : "";
+                    const rec = recipeMap[recIdStr] || null;
                     return {
                         ...r,
                         recipeName: rec?.recipeName || "Recipe",
