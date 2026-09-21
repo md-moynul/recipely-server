@@ -479,12 +479,181 @@ async function run() {
             }
         });
 
+        const reviewsCollection = db.collection('reviews');
+
+        // ================= REVIEWS & RATINGS APIs =================
+        // 1. Get all reviews for a recipe (Public)
+        app.get('/api/reviews/:recipeId', async (req, res) => {
+            try {
+                const recipeId = req.params.recipeId;
+                const reviews = await reviewsCollection
+                    .find({ recipeId })
+                    .sort({ createdAt: -1 })
+                    .toArray();
+
+                const totalReviews = reviews.length;
+                const sumRating = reviews.reduce((sum, r) => sum + (Number(r.rating) || 0), 0);
+                const averageRating = totalReviews > 0 ? Math.round((sumRating / totalReviews) * 10) / 10 : 0;
+
+                const ratingBreakdown = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
+                reviews.forEach(r => {
+                    const stars = Math.min(5, Math.max(1, Math.round(r.rating || 5)));
+                    ratingBreakdown[stars] = (ratingBreakdown[stars] || 0) + 1;
+                });
+
+                res.send({
+                    reviews,
+                    averageRating,
+                    totalReviews,
+                    ratingBreakdown
+                });
+            } catch (error) {
+                console.error("Error fetching reviews:", error);
+                res.status(500).send({ message: "Failed to fetch reviews" });
+            }
+        });
+
+        // 2. Post or update a review (Verified Buyers / Unlocked Users only)
+        app.post('/api/reviews', verifyToken, async (req, res) => {
+            try {
+                const { recipeId, rating, comment } = req.body;
+                const userId = req.user._id || req.user.id || req.user.sub;
+
+                if (!recipeId || !rating || !comment?.trim()) {
+                    return res.status(400).send({ message: "Recipe ID, rating, and comment are required." });
+                }
+
+                const numRating = Number(rating);
+                if (numRating < 1 || numRating > 5) {
+                    return res.status(400).send({ message: "Rating must be between 1 and 5." });
+                }
+
+                if (!ObjectId.isValid(recipeId)) {
+                    return res.status(400).send({ message: "Invalid Recipe ID format" });
+                }
+
+                const recipe = await recipesCollections.findOne({ _id: new ObjectId(recipeId) });
+                if (!recipe) {
+                    return res.status(404).send({ message: "Recipe not found." });
+                }
+
+                // Restriction: Author cannot rate their own recipe
+                if (recipe.authorId === userId) {
+                    return res.status(400).send({ message: "Authors cannot rate their own recipes." });
+                }
+
+                // Check verification: must have bought the recipe, be premium, be admin, or recipe must be free
+                const paymentRecord = await transactionsCollection.findOne({
+                    userId: userId,
+                    recipeId: recipeId,
+                    purchaseType: 'recipe',
+                    paymentStatus: 'succeeded'
+                });
+
+                const userDoc = await userCollection.findOne({ _id: new ObjectId(userId) });
+                const isPremium = !!userDoc?.isPremium;
+                const isAdmin = req.user.role === 'admin';
+                const isFree = !recipe.price || Number(recipe.price) === 0;
+
+                const isVerifiedBuyer = !!paymentRecord || isPremium || isAdmin || isFree;
+
+                if (!isVerifiedBuyer) {
+                    return res.status(403).send({
+                        message: "Only verified buyers who unlocked this recipe can write a review."
+                    });
+                }
+
+                const userName = userDoc?.name || req.user.name || "Food Enthusiast";
+                const userImage = userDoc?.image || req.user.image || null;
+
+                const reviewDoc = {
+                    recipeId,
+                    userId,
+                    userName,
+                    userImage,
+                    rating: numRating,
+                    comment: comment.trim(),
+                    isVerifiedBuyer: true,
+                    updatedAt: new Date()
+                };
+
+                await reviewsCollection.updateOne(
+                    { recipeId, userId },
+                    { $set: reviewDoc, $setOnInsert: { createdAt: new Date() } },
+                    { upsert: true }
+                );
+
+                // Recalculate average rating & review count for recipe
+                const allReviews = await reviewsCollection.find({ recipeId }).toArray();
+                const totalReviews = allReviews.length;
+                const sumRating = allReviews.reduce((sum, r) => sum + Number(r.rating || 0), 0);
+                const averageRating = totalReviews > 0 ? Math.round((sumRating / totalReviews) * 10) / 10 : 0;
+
+                await recipesCollections.updateOne(
+                    { _id: new ObjectId(recipeId) },
+                    { $set: { averageRating, totalReviews, reviewCount: totalReviews } }
+                );
+
+                res.send({
+                    success: true,
+                    message: "Thank you! Your verified review has been posted.",
+                    review: reviewDoc,
+                    averageRating,
+                    totalReviews
+                });
+            } catch (error) {
+                console.error("Error submitting review:", error);
+                res.status(500).send({ message: "Internal server error submitting review" });
+            }
+        });
+
+        // 3. Delete a review (Author of review or Admin)
+        app.delete('/api/reviews/:id', verifyToken, async (req, res) => {
+            try {
+                const id = req.params.id;
+                const userId = req.user._id || req.user.id || req.user.sub;
+                const isAdmin = req.user.role === 'admin';
+
+                if (!ObjectId.isValid(id)) {
+                    return res.status(400).send({ message: "Invalid Review ID" });
+                }
+
+                const review = await reviewsCollection.findOne({ _id: new ObjectId(id) });
+                if (!review) {
+                    return res.status(404).send({ message: "Review not found" });
+                }
+
+                if (review.userId !== userId && !isAdmin) {
+                    return res.status(403).send({ message: "You are not authorized to delete this review" });
+                }
+
+                await reviewsCollection.deleteOne({ _id: new ObjectId(id) });
+
+                // Recalculate
+                const allReviews = await reviewsCollection.find({ recipeId: review.recipeId }).toArray();
+                const totalReviews = allReviews.length;
+                const sumRating = allReviews.reduce((sum, r) => sum + Number(r.rating || 0), 0);
+                const averageRating = totalReviews > 0 ? Math.round((sumRating / totalReviews) * 10) / 10 : 0;
+
+                await recipesCollections.updateOne(
+                    { _id: new ObjectId(review.recipeId) },
+                    { $set: { averageRating, totalReviews, reviewCount: totalReviews } }
+                );
+
+                res.send({ success: true, message: "Review deleted successfully" });
+            } catch (error) {
+                console.error("Error deleting review:", error);
+                res.status(500).send({ message: "Failed to delete review" });
+            }
+        });
+
         // get all transactions
         app.get('/api/transactions', verifyToken, verifyAdmin, async (req, res) => {
             const cursor = transactionsCollection.find().sort({ paidAt: -1 });
             const transactions = await cursor.toArray();
             res.send(transactions);
-        })
+        });
+
         console.log("Pinged your deployment. You successfully connected to MongoDB!");
     } finally {
         // Ensures that the client will close when you finish/error
