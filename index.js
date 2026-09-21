@@ -685,7 +685,7 @@ async function run() {
             }
         });
 
-        // 5. Get personal reviews for logged-in user
+        // 5. Get reviews received on recipes published by the logged-in user (Author's Recipe Reviews)
         app.get('/api/my-reviews', verifyToken, async (req, res) => {
             try {
                 const userId = req.user._id || req.user.id || req.user.sub;
@@ -693,41 +693,50 @@ async function run() {
                     return res.status(401).send({ message: "User not identified" });
                 }
 
-                const userIds = [userId, req.user.id, req.user._id, req.user.sub].filter(Boolean);
+                const authorIds = [userId, req.user.id, req.user._id, req.user.sub].filter(Boolean);
+                const authorEmails = [req.user.email].filter(Boolean);
+
+                // 1. Find all recipes created by this author
+                const authorRecipes = await recipesCollections.find({
+                    $or: [
+                        { authorId: { $in: authorIds } },
+                        ...(authorEmails.length > 0 ? [{ authorEmail: { $in: authorEmails } }] : [])
+                    ]
+                }).toArray();
+
+                if (!authorRecipes || authorRecipes.length === 0) {
+                    return res.send([]);
+                }
+
+                const recipeMap = {};
+                const recipeIdStrings = [];
+                authorRecipes.forEach(rec => {
+                    const idStr = rec._id.toString();
+                    recipeIdStrings.push(idStr);
+                    recipeMap[idStr] = rec;
+                });
+
+                // 2. Fetch all reviews for this author's recipes
                 const reviews = await reviewsCollection.find({
-                    userId: { $in: userIds }
+                    recipeId: { $in: recipeIdStrings }
                 }).sort({ createdAt: -1 }).toArray();
 
-                // Collect unique recipeIds
-                const recipeObjectIds = [];
-                reviews.forEach(r => {
-                    if (r.recipeId && ObjectId.isValid(r.recipeId)) {
-                        recipeObjectIds.push(new ObjectId(r.recipeId));
-                    }
-                });
-
-                const recipes = await recipesCollections.find({ _id: { $in: recipeObjectIds } }).toArray();
-                const recipeMap = {};
-                recipes.forEach(rec => {
-                    recipeMap[rec._id.toString()] = rec;
-                });
-
+                // 3. Enrich reviews with recipe details
                 const enrichedReviews = reviews.map(r => {
                     const rec = recipeMap[r.recipeId] || null;
                     return {
                         ...r,
-                        recipeName: rec?.recipeName || "Unknown Recipe",
+                        recipeName: rec?.recipeName || "Recipe",
                         recipeImage: rec?.recipeImage || null,
                         category: rec?.category || "Dish",
-                        price: rec?.price || 0,
-                        preparationTime: rec?.preparationTime || "20 mins"
+                        price: rec?.price || 0
                     };
                 });
 
                 res.send(enrichedReviews);
             } catch (error) {
-                console.error("Error fetching user reviews:", error);
-                res.status(500).send({ message: "Failed to fetch user reviews" });
+                console.error("Error fetching author's recipe reviews:", error);
+                res.status(500).send({ message: "Failed to fetch author's recipe reviews" });
             }
         });
 
