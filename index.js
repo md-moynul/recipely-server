@@ -720,34 +720,29 @@ async function run() {
 
                 let reply = "";
 
-                // 1. Google Gemini (if GEMINI_API_KEY configured)
-                if (process.env.GEMINI_API_KEY) {
+                // 1. Google Gemini AI (Official SDK using GEMINI_API_KEY or GOOGLE_GENERATIVE_AI_API_KEY)
+                const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+                if (geminiKey) {
                     try {
-                        const geminiRes = await fetch(
-                            `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
-                            {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({
-                                    contents: [{
-                                        parts: [{
-                                            text: `You are ChefBot, the friendly, expert AI culinary assistant on the Recipely platform.
-CRITICAL LANGUAGE INSTRUCTION:
-- If user writes in Bengali script (বাংলা), respond in natural, polite Bengali.
-- If user writes in Banglish (Bengali transliterated in English alphabet, e.g., 'dim r alu diye ki ranna kora jay', 'kemn aso'), respond in friendly, conversational Banglish!
+                        const { GoogleGenerativeAI } = require("@google/generative-ai");
+                        const genAI = new GoogleGenerativeAI(geminiKey);
+                        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+                        const systemContext = `You are ChefBot, the friendly expert AI culinary assistant on the Recipely platform.
+CRITICAL LANGUAGE RULES:
+- If user writes in Bengali script (বাংলা), respond warmly in natural Bengali.
+- If user writes in Banglish (Bengali transliterated in English alphabet, e.g. "dim r alu diye ki ranna kora jay", "buttermilk er bodole ki dewa jay", "kemn aso"), respond in friendly, natural Banglish!
 - If user writes in English, respond in English.
-User query: "${message}".
-Recipely available recipes matching context: ${matchedRecipes.map(r => `${r.recipeName} (ID: ${r._id})`).join(', ') || 'None'}.
-Provide a helpful, delicious answer. Mention platform recipes if relevant.`
-                                        }]
-                                    }]
-                                })
-                            }
-                        );
-                        const geminiData = await geminiRes.json();
-                        if (geminiData.candidates?.[0]?.content?.parts?.[0]?.text) {
-                            reply = geminiData.candidates[0].content.parts[0].text;
-                        }
+
+Recipely available recipes matching context:
+${matchedRecipes.map(r => `• ${r.recipeName} (Link: /all-recipes/${r._id}) - Category: ${r.category || 'Food'}, Time: ${r.preparationTime || 'Quick'}`).join('\n') || 'None'}
+
+User query: "${message}"
+
+Provide a delicious, helpful, and concise cooking response. Use bullet points and bold formatting. If matching Recipely recipes exist, mention them with their markdown links.`;
+
+                        const result = await model.generateContent(systemContext);
+                        reply = result.response.text();
                     } catch (gErr) {
                         console.error("Gemini API error, falling back to smart engine:", gErr.message);
                     }
