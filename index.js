@@ -223,9 +223,10 @@ async function run() {
                 return res.status(500).send({ message: "Internal server error" });
             }
         });
-        // get featured recipes
+        // get featured recipes (highest 8)
         app.get('/api/recipes/featured', async (req, res) => {
-            const cursor = recipesCollections.find({ isFeatured: true }).sort({ createdAt: -1 });
+            const limit = Number(req.query.limit) || 8;
+            const cursor = recipesCollections.find({ isFeatured: true }).sort({ createdAt: -1 }).limit(limit);
             const recipes = await cursor.toArray();
             res.send(recipes);
         })
@@ -644,6 +645,204 @@ async function run() {
             } catch (error) {
                 console.error("Error deleting review:", error);
                 res.status(500).send({ message: "Failed to delete review" });
+            }
+        });
+
+        // ================= AI CHEFBOT MULTILINGUAL API =================
+        app.post('/api/ai-chat', async (req, res) => {
+            try {
+                const { message } = req.body;
+                if (!message || !message.trim()) {
+                    return res.status(400).send({ message: "Message is required" });
+                }
+
+                const userMsg = message.trim().toLowerCase();
+
+                // Detect Language: Bangla Script, Banglish, or English
+                const isBanglaScript = /[\u0980-\u09FF]/.test(message);
+                const banglishWords = [
+                    'ki', 'kivabe', 'korte', 'parbo', 'parbe', 'hobe', 'ranna', 'banabo', 'kore',
+                    'dewa', 'jay', 'achhe', 'ache', 'amar', 'kase', 'bolo', 'bhalo', 'keno',
+                    'khabar', 'khabo', 'dim', 'alu', 'aloo', 'murgi', 'goru', 'macher', 'ilish',
+                    'porota', 'shorshe', 'mishti', 'jhol', 'moshla', 'chal', 'tel', 'ekta', 'kisu',
+                    'khate', 'iccha', 'koro', 'amr', 'apni', 'tumi', 'bhai', 'kemn', 'aso', 'khobor'
+                ];
+                const isBanglish = !isBanglaScript && banglishWords.some(w => new RegExp(`\\b${w}\\b`, 'i').test(userMsg));
+
+                // Bilingual Ingredient Dictionary for Database Searching
+                const bnToEnMap = {
+                    'dim': 'egg', 'ডিম': 'egg',
+                    'alu': 'aloo', 'aloo': 'aloo', 'আলু': 'aloo',
+                    'murgi': 'chicken', 'চিকেন': 'chicken', 'মুরগি': 'chicken',
+                    'goru': 'beef', 'গরু': 'beef', 'বিফ': 'beef', 'kala bhuna': 'kala bhuna', 'কালা ভুনা': 'kala bhuna',
+                    'ilish': 'ilish', 'ইলিশ': 'ilish', 'shorshe': 'shorshe', 'সরিষা': 'shorshe',
+                    'biryani': 'biryani', 'বিরিয়ানি': 'biryani', 'kacchi': 'kacchi', 'কাচ্চি': 'kacchi',
+                    'porota': 'paratha', 'paratha': 'paratha', 'পরোটা': 'paratha',
+                    'pancake': 'pancake', 'প্যানকেক': 'pancake',
+                    'begun': 'begun', 'বেগুন': 'begun',
+                    'pasta': 'fettuccine', 'পাস্তা': 'fettuccine', 'fettuccine': 'fettuccine',
+                    'doi': 'doi', 'দই': 'doi', 'bhapa doi': 'bhapa doi',
+                    'tacos': 'tacos', 'spring roll': 'spring rolls', 'ভাত': 'rice', 'rice': 'rice', 'cha': 'tea'
+                };
+
+                // Extract keywords from user message
+                let searchTerms = [];
+                for (const [key, val] of Object.entries(bnToEnMap)) {
+                    if (userMsg.includes(key)) {
+                        searchTerms.push(val);
+                        searchTerms.push(key);
+                    }
+                }
+
+                // Add standard words
+                const genericWords = userMsg
+                    .replace(/[^\w\s\u0980-\u09FF]/gi, '')
+                    .split(/\s+/)
+                    .filter(w => w.length > 2 && !['how', 'what', 'can', 'with', 'make', 'cook', 'the', 'and', 'for', 'have', 'kivabe', 'korte', 'ranna'].includes(w));
+                searchTerms = [...new Set([...searchTerms, ...genericWords])];
+
+                let matchedRecipes = [];
+                if (searchTerms.length > 0) {
+                    const regexQueries = searchTerms.map(kw => ({
+                        $or: [
+                            { recipeName: { $regex: kw, $options: 'i' } },
+                            { category: { $regex: kw, $options: 'i' } },
+                            { cuisineType: { $regex: kw, $options: 'i' } },
+                            { ingredients: { $regex: kw, $options: 'i' } }
+                        ]
+                    }));
+
+                    matchedRecipes = await recipesCollections
+                        .find({ $or: regexQueries })
+                        .limit(3)
+                        .toArray();
+                }
+
+                let reply = "";
+
+                // 1. Google Gemini (if GEMINI_API_KEY configured)
+                if (process.env.GEMINI_API_KEY) {
+                    try {
+                        const geminiRes = await fetch(
+                            `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
+                            {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    contents: [{
+                                        parts: [{
+                                            text: `You are ChefBot, the friendly, expert AI culinary assistant on the Recipely platform.
+CRITICAL LANGUAGE INSTRUCTION:
+- If user writes in Bengali script (বাংলা), respond in natural, polite Bengali.
+- If user writes in Banglish (Bengali transliterated in English alphabet, e.g., 'dim r alu diye ki ranna kora jay', 'kemn aso'), respond in friendly, conversational Banglish!
+- If user writes in English, respond in English.
+User query: "${message}".
+Recipely available recipes matching context: ${matchedRecipes.map(r => `${r.recipeName} (ID: ${r._id})`).join(', ') || 'None'}.
+Provide a helpful, delicious answer. Mention platform recipes if relevant.`
+                                        }]
+                                    }]
+                                })
+                            }
+                        );
+                        const geminiData = await geminiRes.json();
+                        if (geminiData.candidates?.[0]?.content?.parts?.[0]?.text) {
+                            reply = geminiData.candidates[0].content.parts[0].text;
+                        }
+                    } catch (gErr) {
+                        console.error("Gemini API error, falling back to smart engine:", gErr.message);
+                    }
+                }
+
+                // 2. Smart Multi-Language Fallback Engine
+                if (!reply) {
+                    if (isBanglish) {
+                        // --- BANGLISH RESPONSES ---
+                        if (userMsg.includes('substitute') || userMsg.includes('bodole') || userMsg.includes('bodla') || userMsg.includes('alternative')) {
+                            if (userMsg.includes('buttermilk')) {
+                                reply = "🥛 **Buttermilk er Substitute:**\n**1 cup regular dudh** er sathe **1 table-spoon lebur rosh ba white vinegar** mishiye 5 minute rekhe din. Dudh ta halka curdled holei apnar homemade buttermilk ready!";
+                            } else if (userMsg.includes('dim') || userMsg.includes('egg')) {
+                                reply = "🥚 **Dim (Egg) er Substitute:**\n- **Baking/Cake-e:** 1/4 cup mishti chara applesauce ba mashed banana.\n- **Pancake/Fluffiness:** 1 tbsp tishi (flaxseed powder) + 3 tbsp pani.\n- **Salad/Savory:** 1/4 cup tofu ba seddho alu mash.";
+                            } else if (userMsg.includes('butter') || userMsg.includes('makha')) {
+                                reply = "🧈 **Butter er Substitute:**\n- **Baking-e:** Shoman poriman coconut oil ba shadha tel.\n- **Ranna/Fry-te:** Olive oil ba shorishar tel use korte paren.";
+                            } else {
+                                reply = "🔄 **Chef Tip (Substitutes):**\nKono ingredient na thakle tar alternative use kora jay! Apnar kon ingredient er substitute lagbe bolun?";
+                            }
+                        } else if (userMsg.includes('dim') && (userMsg.includes('alu') || userMsg.includes('aloo'))) {
+                            reply = "🍳 **Dim ar Alu diye Mojar Kichu Recipe Ideas:**\n1. **Dim Alur Dum / Korma:** Sheddho dim o alu bhalo kore veje moshla diye gravy banan.\n2. **Alu Dim Porota:** Seddho alu moshla diye mekey porotar vetor diye gorom gorom banan.\n3. **Dim Aloo Chop:** Seddho alur vetor dim er piece rekhe breadcrumb diye fry korun!";
+                        } else if (userMsg.includes('quick') || userMsg.includes('jhotpot') || userMsg.includes('15') || userMsg.includes('taratari')) {
+                            reply = "⚡ **15-20 Minute-e Jhotpot Ranna:**\n1. **Egg Fried Rice:** Dim, bhat, roshun o soy sauce diye 10 minute-e fried rice.\n2. **Garlic Butter Pasta:** Noodles sheddho kore roshun o butter diye toss korun.\n3. **Dim Bhaji & Paratha:** Piyaj, kacha morich diye dim mamlet o porota.";
+                        } else if (userMsg.includes('healthy') || userMsg.includes('shastho') || userMsg.includes('diet') || userMsg.includes('weight')) {
+                            reply = "🥗 **Healthy & Diet Ranna Tips:**\n- Kom tel o kom moshlay sobji o chicken grill ba boil korun.\n- Tel chara shobji shobuj rakhte steam korun, shathe roshun o lebur rosh din flavor-er jonno!";
+                        } else if (userMsg.includes('hi') || userMsg.includes('hello') || userMsg.includes('kemn') || userMsg.includes('kemon') || userMsg.includes('ki khobor') || userMsg.includes('hey')) {
+                            reply = "👋 **Hey! Ami ChefBot, Recipely-r AI Cooking Assistant!**\n\nApnar fridge-e ki ki ingredients ache bolun, ami shundor shundor recipe suggest kore dicchi. Ajke ki ranna korte chan?";
+                        } else if (matchedRecipes.length > 0) {
+                            reply = `👨‍🍳 **Apnar jonno Recipely-te shundor kichu recipe pawa geche:**`;
+                        } else {
+                            reply = `🍳 **ChefBot Cooking Recommendation:**\n**"${message}"** niye ranna korte chaile halka roshun, ada o shothik moshla diye ranna korle shwad darun hobe!`;
+                        }
+
+                        if (matchedRecipes.length > 0) {
+                            reply += `\n\n✨ **Recipely Platform-er Match Kora Recipe:**\n` +
+                                matchedRecipes.map(r => `• **[${r.recipeName}](/all-recipes/${r._id})** — *${r.category || 'Dish'} (${r.preparationTime || 'Quick'})*`).join('\n');
+                        }
+                    } else if (isBanglaScript) {
+                        // --- BANGLA SCRIPT RESPONSES ---
+                        if (userMsg.includes('বিকল্প') || userMsg.includes('বদলে') || userMsg.includes('পরিবর্তে')) {
+                            if (userMsg.includes('ডিম')) {
+                                reply = "🥚 **ডিমের বিকল্প উপাদান:**\n- **বেকিং বা কেকের জন্য:** ১/৪ কাপ অ্যাপেলসস বা পাকা কলা ম্যাশ।\n- **প্যানকেকের জন্য:** ১ চামচ তিসির গুঁড়ো + ৩ চামচ পানি।";
+                            } else {
+                                reply = "🔄 **শেফ টিপস:** আপনি রান্নায় কোন উপাদানটির বিকল্প খুঁজছেন আমাকে জানান, আমি সাহায্য করছি!";
+                            }
+                        } else if (userMsg.includes('ডিম') && userMsg.includes('আলু')) {
+                            reply = "🍳 **ডিম ও আলু দিয়ে চমৎকার কিছু রেসিপি:**\n১. **ডিম আলুর ডালনা বা কোরমা:** সেদ্ধ ডিম ও আলু ভালো করে ভেজে দারুণ গ্রেভি তৈরি করুন।\n২. **আলু ডিম পরোটা:** সেদ্ধ আলু ও ডিম দিয়ে মসলা মিশিয়ে গরম গরম পরোটা বানান।";
+                        } else if (userMsg.includes('হাই') || userMsg.includes('হ্যালো') || userMsg.includes('কেমন')) {
+                            reply = "👋 **নমস্কার! আমি শেফবট (ChefBot), রেসিপিলির এআই কুকিং অ্যাসিস্ট্যান্ট।**\n\nআপনার কাছে কী কী উপাদান আছে বলুন, আমি দারুণ দারুণ রেসিপি বাতলে দেব। আজ কী রান্না করতে চান?";
+                        } else {
+                            reply = `🍳 **শেফবট রান্নার পরামর্শ:**\n**"${message}"** দিয়ে রান্না করতে চাইলে সঠিক মশলা ও পরিমিত আঁচে রান্না করুন।`;
+                        }
+
+                        if (matchedRecipes.length > 0) {
+                            reply += `\n\n✨ **রেসিপিলির সম্পর্কিত রেসিপি:**\n` +
+                                matchedRecipes.map(r => `• **[${r.recipeName}](/all-recipes/${r._id})** — *${r.category || 'Dish'} (${r.preparationTime || 'Quick'})*`).join('\n');
+                        }
+                    } else {
+                        // --- ENGLISH RESPONSES ---
+                        if (userMsg.includes('substitute') || userMsg.includes('alternative') || userMsg.includes('instead of')) {
+                            if (userMsg.includes('buttermilk')) {
+                                reply = "🥛 **Buttermilk Substitute:**\nMix **1 cup whole milk** with **1 tablespoon lemon juice or white vinegar**. Let it sit for 5 minutes until slightly curdled. It works just like fresh buttermilk!";
+                            } else if (userMsg.includes('egg')) {
+                                reply = "🥚 **Egg Substitutes for Baking & Cooking:**\n- **For moisture & binding:** 1/4 cup unsweetened applesauce per egg.\n- **For fluffiness (pancakes/cakes):** 1 tbsp ground flaxseed + 3 tbsp water.\n- **For savory dishes:** 1/4 cup silken tofu or mashed potato.";
+                            } else {
+                                reply = "🔄 **Chef Tip for Substitutions:**\nAlways balance moisture, fat, and flavor! What specific ingredient would you like to substitute today?";
+                            }
+                        } else if (userMsg.includes('quick') || userMsg.includes('fast') || userMsg.includes('15') || userMsg.includes('20 min')) {
+                            reply = "⚡ **Quick 15-20 Minute Cooking Ideas:**\n1. **Egg Fried Rice:** Day-old rice stir-fried with eggs, soy sauce, garlic, and scallions.\n2. **Garlic Butter Pasta:** Boil noodles, toss with sizzled garlic, butter, chili flakes, and parmesan.\n3. **Quick Vegetable Stir-Fry:** Crisp veggies sautéed in sesame oil and oyster sauce.";
+                        } else if (userMsg.includes('hello') || userMsg.includes('hi') || userMsg.includes('hey')) {
+                            reply = "👋 **Hello! I'm ChefBot, your AI Cooking Assistant at Recipely.**\n\nI can help you with:\n- 🍳 Finding dishes based on ingredients in your fridge\n- 🔄 Ingredient substitutions\n- ⏱️ Quick meal ideas & cooking tips\n\nWhat are you in the mood to cook today?";
+                        } else {
+                            reply = `🍳 **ChefBot Cooking Recommendation:**\nFor **"${message}"**, try balancing spices, aromatics (garlic, onion, ginger), and fresh herbs to make the flavors pop!`;
+                        }
+
+                        if (matchedRecipes.length > 0) {
+                            reply += `\n\n✨ **Matching Recipes on Recipely:**\n` +
+                                matchedRecipes.map(r => `• **[${r.recipeName}](/all-recipes/${r._id})** — *${r.category || 'Dish'} (${r.preparationTime || 'Quick'})*`).join('\n');
+                        }
+                    }
+                }
+
+                res.send({
+                    reply,
+                    matchedRecipes: matchedRecipes.map(r => ({
+                        id: r._id,
+                        name: r.recipeName,
+                        image: r.recipeImage,
+                        category: r.category,
+                        time: r.preparationTime
+                    }))
+                });
+            } catch (error) {
+                console.error("AI chat error:", error);
+                res.status(500).send({ message: "ChefBot is resting. Please try again in a moment." });
             }
         });
 
