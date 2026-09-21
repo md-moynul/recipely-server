@@ -648,6 +648,89 @@ async function run() {
             }
         });
 
+        // 4. Get all platform reviews for Admin
+        app.get('/api/admin/reviews', verifyToken, verifyAdmin, async (req, res) => {
+            try {
+                const reviews = await reviewsCollection.find().sort({ createdAt: -1 }).toArray();
+                
+                // Collect unique recipeIds
+                const recipeObjectIds = [];
+                reviews.forEach(r => {
+                    if (r.recipeId && ObjectId.isValid(r.recipeId)) {
+                        recipeObjectIds.push(new ObjectId(r.recipeId));
+                    }
+                });
+
+                const recipes = await recipesCollections.find({ _id: { $in: recipeObjectIds } }).toArray();
+                const recipeMap = {};
+                recipes.forEach(rec => {
+                    recipeMap[rec._id.toString()] = rec;
+                });
+
+                const enrichedReviews = reviews.map(r => {
+                    const rec = recipeMap[r.recipeId] || null;
+                    return {
+                        ...r,
+                        recipeName: rec?.recipeName || "Unknown Recipe",
+                        recipeImage: rec?.recipeImage || null,
+                        category: rec?.category || "Dish",
+                        authorName: rec?.authorName || "Chef"
+                    };
+                });
+
+                res.send(enrichedReviews);
+            } catch (error) {
+                console.error("Error fetching admin reviews:", error);
+                res.status(500).send({ message: "Failed to fetch admin reviews" });
+            }
+        });
+
+        // 5. Get personal reviews for logged-in user
+        app.get('/api/my-reviews', verifyToken, async (req, res) => {
+            try {
+                const userId = req.user._id || req.user.id || req.user.sub;
+                if (!userId) {
+                    return res.status(401).send({ message: "User not identified" });
+                }
+
+                const userIds = [userId, req.user.id, req.user._id, req.user.sub].filter(Boolean);
+                const reviews = await reviewsCollection.find({
+                    userId: { $in: userIds }
+                }).sort({ createdAt: -1 }).toArray();
+
+                // Collect unique recipeIds
+                const recipeObjectIds = [];
+                reviews.forEach(r => {
+                    if (r.recipeId && ObjectId.isValid(r.recipeId)) {
+                        recipeObjectIds.push(new ObjectId(r.recipeId));
+                    }
+                });
+
+                const recipes = await recipesCollections.find({ _id: { $in: recipeObjectIds } }).toArray();
+                const recipeMap = {};
+                recipes.forEach(rec => {
+                    recipeMap[rec._id.toString()] = rec;
+                });
+
+                const enrichedReviews = reviews.map(r => {
+                    const rec = recipeMap[r.recipeId] || null;
+                    return {
+                        ...r,
+                        recipeName: rec?.recipeName || "Unknown Recipe",
+                        recipeImage: rec?.recipeImage || null,
+                        category: rec?.category || "Dish",
+                        price: rec?.price || 0,
+                        preparationTime: rec?.preparationTime || "20 mins"
+                    };
+                });
+
+                res.send(enrichedReviews);
+            } catch (error) {
+                console.error("Error fetching user reviews:", error);
+                res.status(500).send({ message: "Failed to fetch user reviews" });
+            }
+        });
+
         // ================= AI CHEFBOT MULTILINGUAL API =================
         app.post('/api/ai-chat', async (req, res) => {
             try {
